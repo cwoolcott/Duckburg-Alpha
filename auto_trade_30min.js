@@ -1,6 +1,8 @@
 const axios = require('axios');
 const fs = require('fs');
-const { Configuration, OpenAIApi } = require('openai');
+const moment = require('moment-timezone');
+
+//const { Configuration, OpenAIApi } = require('openai');
 require('dotenv').config();
 
 // Alpaca and OpenAI credentials
@@ -14,6 +16,19 @@ const stockSymbols = ['LAAC', 'ALTM', 'ATUS', 'HBI', 'CRK', 'KOS', 'VLY', 'NGD']
 
 // Initialize OpenAI API (Optional for external factors, if needed in future)
 // const openai = new OpenAIApi(new Configuration({ apiKey: process.env.OPENAI_API_KEY }));
+
+// Function to check if the current time is between 9:30 AM and 4:00 PM EST
+function isTimeBetween930And4() {
+    // Get the current time in EST
+    const now = moment().tz("America/New_York");
+
+    // Define the start and end times
+    const startTime = moment.tz("09:30 AM", "hh:mm A", "America/New_York");
+    const endTime = moment.tz("04:00 PM", "hh:mm A", "America/New_York");
+
+    // Check if the current time is between the start and end times
+    return now.isBetween(startTime, endTime, null, "[)");
+}
 
 // Function to fetch 30-minute interval data
 async function fetchIntradayData(symbol, startDate) {
@@ -150,8 +165,10 @@ async function main() {
 
     // Run every 30 minutes
     setInterval(async () => {
-        console.log('\nRefreshing data, running predictions, and placing trades...');
-        await generatePredictions();
+        if (isTimeBetween930And4()) {
+            console.log('\nRefreshing data, running predictions, and placing trades...');
+            await generatePredictions();
+        }
     }, 30 * 60 * 1000); // 30 minutes
 }
 
