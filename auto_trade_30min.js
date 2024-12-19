@@ -183,7 +183,7 @@ async function generatePredictions() {
 async function main() {
     console.log('Starting trading model with dynamic quantities...');
     initializeDailyLog();
-    await generatePredictions();
+    //await generatePredictions();
 
     // Run every 30 minutes
     setInterval(async () => {
@@ -191,6 +191,7 @@ async function main() {
             console.log('\nRefreshing data, running predictions, and placing trades...');
             await generatePredictions();
         }
+        
     }, 30 * 60 * 1000); // 30 minutes
 }
 
