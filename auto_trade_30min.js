@@ -1,21 +1,15 @@
 const axios = require('axios');
 const fs = require('fs');
-const moment = require('moment-timezone');
-
-//const { Configuration, OpenAIApi } = require('openai');
 require('dotenv').config();
 
-// Alpaca and OpenAI credentials
 const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
 const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
 const PAPER_BASE_URL = 'https://paper-api.alpaca.markets';
 const DATA_BASE_URL = 'https://data.alpaca.markets/v2/stocks';
-const LOG_FILE = 'predictions_log.json';
+const PREDICTION_LOG_FILE = 'predictions_log.json';
+const DAILY_STOCK_LOG_FILE = 'daily_stock_log.json';
 
-const stockSymbols = ['LAAC', 'ALTM', 'ATUS', 'HBI', 'CRK', 'KOS', 'VLY', 'NGD'];
-
-// Initialize OpenAI API (Optional for external factors, if needed in future)
-// const openai = new OpenAIApi(new Configuration({ apiKey: process.env.OPENAI_API_KEY }));
+const stockSymbols = ['LAAC', 'ALTM', 'ATUS', 'HBI', 'BAYRY', 'SWGAY', 'CRK', 'KOS', 'VLY', 'NGD'];
 
 // Function to check if the current time is between 9:30 AM and 4:00 PM EST
 function isTimeBetween930And4() {
@@ -30,7 +24,31 @@ function isTimeBetween930And4() {
     return now.isBetween(startTime, endTime, null, "[)");
 }
 
-// Function to fetch 30-minute interval data
+// Initialize or reset the daily stock log at the start of each day
+function initializeDailyLog() {
+    const today = new Date().toISOString().split('T')[0];
+    if (!fs.existsSync(DAILY_STOCK_LOG_FILE)) {
+        fs.writeFileSync(DAILY_STOCK_LOG_FILE, JSON.stringify({ date: today, stocks: {} }));
+    }
+    const dailyLog = JSON.parse(fs.readFileSync(DAILY_STOCK_LOG_FILE, 'utf8'));
+    if (dailyLog.date !== today) {
+        // Reset the log for a new day
+        fs.writeFileSync(DAILY_STOCK_LOG_FILE, JSON.stringify({ date: today, stocks: {} }));
+    }
+}
+
+// Load the daily stock log
+function loadDailyLog() {
+    initializeDailyLog();
+    return JSON.parse(fs.readFileSync(DAILY_STOCK_LOG_FILE, 'utf8'));
+}
+
+// Save the daily stock log
+function saveDailyLog(dailyLog) {
+    fs.writeFileSync(DAILY_STOCK_LOG_FILE, JSON.stringify(dailyLog, null, 2));
+}
+
+// Fetch intraday stock data
 async function fetchIntradayData(symbol, startDate) {
     const endpoint = `${DATA_BASE_URL}/${symbol}/bars`;
     try {
@@ -52,7 +70,7 @@ async function fetchIntradayData(symbol, startDate) {
     }
 }
 
-// Submit orders to Alpaca Paper API
+// Submit order to Alpaca
 async function submitOrder(symbol, qty, side) {
     try {
         const response = await axios.post(
@@ -78,50 +96,28 @@ async function submitOrder(symbol, qty, side) {
     }
 }
 
-// Save and validate predictions
-function saveAndValidatePrediction(symbol, prediction, currentPrice, previousLog) {
-    const now = new Date().toISOString();
-    const prevEntry = previousLog.find(log => log.symbol === symbol);
+// Calculate confidence level and adjust quantity
+function calculateConfidenceAndQuantity(symbol, shortSMA, longSMA, predictionLog) {
+    const accuracyLog = predictionLog.filter(entry => entry.symbol === symbol && entry.correctness !== "N/A");
+    const correctCount = accuracyLog.filter(entry => entry.correctness === "Correct").length;
+    const accuracy = accuracyLog.length > 0 ? (correctCount / accuracyLog.length) * 100 : 50; // Default to 50% if no data
 
-    let correctness = null;
+    const gapStrength = Math.abs(shortSMA - longSMA) / shortSMA; // Proportional gap strength
+    const confidence = (accuracy + gapStrength * 100) / 2; // Combine accuracy and indicator strength
 
-    if (prevEntry) {
-        if (prevEntry.prediction === "Buy" && currentPrice > prevEntry.price) correctness = "Correct";
-        if (prevEntry.prediction === "Sell" && currentPrice < prevEntry.price) correctness = "Correct";
-        if ((prevEntry.prediction === "Buy" && currentPrice <= prevEntry.price) ||
-            (prevEntry.prediction === "Sell" && currentPrice >= prevEntry.price)) {
-            correctness = "Incorrect";
-        }
-    }
-
-    const newEntry = {
-        symbol,
-        prediction,
-        price: currentPrice,
-        time: now,
-        previousPrediction: prevEntry ? prevEntry.prediction : null,
-        correctness: prevEntry ? correctness : "N/A",
-    };
-
-    console.log(`Logged Prediction: ${JSON.stringify(newEntry)}`);
-    return newEntry;
-}
-
-// Load or initialize the prediction log
-function loadPredictionLog() {
-    if (!fs.existsSync(LOG_FILE)) fs.writeFileSync(LOG_FILE, JSON.stringify([]));
-    return JSON.parse(fs.readFileSync(LOG_FILE, 'utf8'));
-}
-
-// Write updated prediction log
-function writePredictionLog(updatedLog) {
-    fs.writeFileSync(LOG_FILE, JSON.stringify(updatedLog, null, 2));
+    // Map confidence to quantity (100 to 1000)
+    const quantity = Math.round(Math.min(1000, Math.max(100, confidence * 10)));
+    console.log(`Symbol: ${symbol} | Confidence: ${confidence.toFixed(2)}% | Quantity: ${quantity}`);
+    return { confidence, quantity };
 }
 
 // Generate predictions and place trades
 async function generatePredictions() {
     const startDate = new Date().toISOString().split('T')[0] + 'T00:00:00Z';
-    const predictionLog = loadPredictionLog();
+    const predictionLog = fs.existsSync(PREDICTION_LOG_FILE)
+        ? JSON.parse(fs.readFileSync(PREDICTION_LOG_FILE, 'utf8'))
+        : [];
+    const dailyLog = loadDailyLog();
 
     for (const symbol of stockSymbols) {
         console.log(`Fetching data for ${symbol}...`);
@@ -142,25 +138,49 @@ async function generatePredictions() {
             shortSMA > longSMA ? "Buy" :
             shortSMA < longSMA ? "Sell" : "Hold";
 
+        // Calculate confidence and adjusted quantity
+        const { confidence, quantity } = calculateConfidenceAndQuantity(symbol, shortSMA, longSMA, predictionLog);
+
         console.log(`Symbol: ${symbol} | Recommendation: ${recommendation} | Close: ${latestClose}`);
 
         // Place trade if Buy/Sell
-        if (recommendation === "Buy") await submitOrder(symbol, 10, "buy");
-        if (recommendation === "Sell") await submitOrder(symbol, 10, "sell");
+        if (recommendation === "Buy") {
+            // Buy stock and update daily log
+            await submitOrder(symbol, quantity, "buy");
+            dailyLog.stocks[symbol] = (dailyLog.stocks[symbol] || 0) + quantity;
+        } else if (recommendation === "Sell") {
+            // Only sell stock if we have previously bought it
+            const ownedQuantity = dailyLog.stocks[symbol] || 0;
+            if (ownedQuantity > 0) {
+                const sellQuantity = Math.min(quantity, ownedQuantity); // Don't sell more than owned
+                await submitOrder(symbol, sellQuantity, "sell");
+                dailyLog.stocks[symbol] -= sellQuantity;
+            } else {
+                console.log(`Cannot sell ${symbol}. No stocks owned.`);
+            }
+        }
 
-        // Save and validate prediction
-        const newLogEntry = saveAndValidatePrediction(symbol, recommendation, latestClose, predictionLog);
+        // Log the prediction
+        const newLogEntry = {
+            symbol,
+            prediction: recommendation,
+            price: latestClose,
+            time: new Date().toISOString(),
+        };
         predictionLog.push(newLogEntry);
     }
 
-    // Write updated log
-    writePredictionLog(predictionLog);
-    console.log('Predictions saved and validated.');
+    // Save updated logs
+    fs.writeFileSync(PREDICTION_LOG_FILE, JSON.stringify(predictionLog, null, 2));
+    saveDailyLog(dailyLog);
+
+    console.log('Predictions saved and trades executed.');
 }
 
-// Main function with automation every 30 minutes
+// Main function with automation
 async function main() {
-    console.log('Starting trading model with Alpaca Paper Account and prediction logging...');
+    console.log('Starting trading model with dynamic quantities...');
+    initializeDailyLog();
     await generatePredictions();
 
     // Run every 30 minutes
