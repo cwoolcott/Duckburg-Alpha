@@ -8,6 +8,8 @@ const PAPER_BASE_URL = 'https://paper-api.alpaca.markets';
 const DATA_BASE_URL = 'https://data.alpaca.markets/v2/stocks';
 const PREDICTION_LOG_FILE = 'predictions_log.json';
 const DAILY_STOCK_LOG_FILE = 'daily_stock_log.json';
+const QUANTITY_MIN = 100;
+const QUANTITY_MAX = 1000;
 
 const stockSymbols = ['LAAC', 'ALTM', 'ATUS', 'HBI', 'BAYRY', 'SWGAY', 'CRK', 'KOS', 'VLY', 'NGD'];
 
@@ -106,7 +108,7 @@ function calculateConfidenceAndQuantity(symbol, shortSMA, longSMA, predictionLog
     const confidence = (accuracy + gapStrength * 100) / 2; // Combine accuracy and indicator strength
 
     // Map confidence to quantity (100 to 1000)
-    const quantity = Math.round(Math.min(1000, Math.max(100, confidence * 10)));
+    const quantity = Math.round(Math.min(QUANTITY_MAX, Math.max(QUANTITY_MIN, confidence * 10)));
     console.log(`Symbol: ${symbol} | Confidence: ${confidence.toFixed(2)}% | Quantity: ${quantity}`);
     return { confidence, quantity };
 }
