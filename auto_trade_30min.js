@@ -1,6 +1,7 @@
 const axios = require('axios');
 const fs = require('fs');
 require('dotenv').config();
+const moment = require('moment-timezone');
 
 const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
 const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
@@ -181,8 +182,8 @@ async function generatePredictions() {
 
 // Main function with automation
 async function main() {
-    console.log('Starting trading model with dynamic quantities...');
-    initializeDailyLog();
+    //console.log('Starting trading model with dynamic quantities...');
+    //initializeDailyLog();
     //await generatePredictions();
 
     // Run every 30 minutes
