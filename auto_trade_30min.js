@@ -193,7 +193,7 @@ async function main() {
             await generatePredictions();
         }
         
-    }, 30 * 60 * 1000); // 30 minutes
+    }, 20 * 60 * 1000); // 20 minutes
 }
 
 main();
