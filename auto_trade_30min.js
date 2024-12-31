@@ -5,6 +5,7 @@ const moment = require('moment-timezone');
 
 const ALPACA_API_KEY = process.env.ALPACA_API_KEY;
 const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PAPER_BASE_URL = 'https://paper-api.alpaca.markets';
 const DATA_BASE_URL = 'https://data.alpaca.markets/v2/stocks';
 const PREDICTION_LOG_FILE = 'predictions_log.json';
@@ -39,6 +40,43 @@ function initializeDailyLog() {
         fs.writeFileSync(DAILY_STOCK_LOG_FILE, JSON.stringify({ date: today, stocks: {} }));
     }
 }
+
+
+// ChatGPT analysis for final recommendations
+async function getChatGPTAnalysis(symbol, indicators, initialRecommendation, confidence) {
+    const prompt = `
+        You are an AI financial assistant. Analyze the following stock data and provide a final recommendation:
+        - Symbol: ${symbol}
+        - Indicators: ${JSON.stringify(indicators)}
+        - Initial Recommendation: ${initialRecommendation}
+        - Confidence Level: ${confidence}%
+
+        Based on this information, provide a single-word recommendation: Buy, Sell, or Hold.
+    `;
+
+    try {
+        const response = await axios.post(
+            'https://api.openai.com/v1/chat/completions',
+            {
+                model: 'gpt-4',
+                messages: [{ role: 'user', content: prompt }],
+                max_tokens: 20,
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                },
+            }
+        );
+        const chatGPTRecommendation = response.data.choices[0].message.content.trim();
+        console.log(`ChatGPT Recommendation for ${symbol}: ${chatGPTRecommendation}`);
+        return chatGPTRecommendation;
+    } catch (error) {
+        console.error(`Error getting ChatGPT recommendation for ${symbol}:`, error.message);
+        return 'Hold'; // Default to Hold if analysis fails
+    }
+}
+
 
 // Load the daily stock log
 function loadDailyLog() {
@@ -144,14 +182,19 @@ async function generatePredictions() {
         // Calculate confidence and adjusted quantity
         const { confidence, quantity } = calculateConfidenceAndQuantity(symbol, shortSMA, longSMA, predictionLog);
 
+        // Get final recommendation from ChatGPT
+        const indicators = { shortSMA, longSMA, latestClose };
+        const finalRecommendation = await getChatGPTAnalysis(symbol, indicators, initialRecommendation, confidence.toFixed(2));
+
+
         console.log(`Symbol: ${symbol} | Recommendation: ${recommendation} | Close: ${latestClose}`);
 
         // Place trade if Buy/Sell
-        if (recommendation === "Buy") {
+        if (finalRecommendation === "Buy") {
             // Buy stock and update daily log
             await submitOrder(symbol, quantity, "buy");
             dailyLog.stocks[symbol] = (dailyLog.stocks[symbol] || 0) + quantity;
-        } else if (recommendation === "Sell") {
+        } else if (finalRecommendation === "Sell") {
             // Only sell stock if we have previously bought it
             const ownedQuantity = dailyLog.stocks[symbol] || 0;
             if (ownedQuantity > 0) {
@@ -167,6 +210,7 @@ async function generatePredictions() {
         const newLogEntry = {
             symbol,
             prediction: recommendation,
+            finalRecommendation: finalRecommendation,
             price: latestClose,
             time: new Date().toISOString(),
         };
