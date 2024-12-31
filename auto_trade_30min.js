@@ -10,10 +10,12 @@ const PAPER_BASE_URL = 'https://paper-api.alpaca.markets';
 const DATA_BASE_URL = 'https://data.alpaca.markets/v2/stocks';
 const PREDICTION_LOG_FILE = 'predictions_log.json';
 const DAILY_STOCK_LOG_FILE = 'daily_stock_log.json';
-const QUANTITY_MIN = 100;
-const QUANTITY_MAX = 1000;
+const QUANTITY_MIN = 20;
+const QUANTITY_MAX = 100;
 
-const stockSymbols = ['LAAC', 'ALTM', 'ATUS', 'HBI', 'BAYRY', 'SWGAY', 'CRK', 'KOS', 'VLY', 'NGD'];
+
+// const stockSymbols = ['LAAC', 'ALTM', 'ATUS', 'HBI', 'BAYRY', 'SWGAY', 'CRK', 'KOS', 'VLY', 'NGD'];
+const stockSymbols = ['F', 'T', 'SNDL', 'AAL', 'PLUG', 'BB', 'CHPT', 'WISH', 'SNAP'];
 
 // Function to check if the current time is between 9:30 AM and 4:00 PM EST
 function isTimeBetween930And4() {
@@ -73,6 +75,7 @@ async function getChatGPTAnalysis(symbol, indicators, initialRecommendation, con
         return chatGPTRecommendation;
     } catch (error) {
         console.error(`Error getting ChatGPT recommendation for ${symbol}:`, error.message);
+	console.log(error);
         return 'Hold'; // Default to Hold if analysis fails
     }
 }
@@ -175,7 +178,7 @@ async function generatePredictions() {
         const latestClose = data[data.length - 1].close;
 
         // Generate recommendation
-        const recommendation =
+        const initialRecommendation =
             shortSMA > longSMA ? "Buy" :
             shortSMA < longSMA ? "Sell" : "Hold";
 
@@ -186,9 +189,9 @@ async function generatePredictions() {
         const indicators = { shortSMA, longSMA, latestClose };
         const finalRecommendation = await getChatGPTAnalysis(symbol, indicators, initialRecommendation, confidence.toFixed(2));
 
-
-        console.log(`Symbol: ${symbol} | Recommendation: ${recommendation} | Close: ${latestClose}`);
-
+        console.log("------");
+        console.log(`Symbol: ${symbol} | Recommendation: ${initialRecommendation} | Close: ${latestClose}`);
+        console.log(`Quantity: ${quantity} | FinalRecommendation: ${finalRecommendation}`);
         // Place trade if Buy/Sell
         if (finalRecommendation === "Buy") {
             // Buy stock and update daily log
@@ -209,7 +212,6 @@ async function generatePredictions() {
         // Log the prediction
         const newLogEntry = {
             symbol,
-            prediction: recommendation,
             finalRecommendation: finalRecommendation,
             price: latestClose,
             time: new Date().toISOString(),
@@ -228,7 +230,7 @@ async function generatePredictions() {
 async function main() {
     //console.log('Starting trading model with dynamic quantities...');
     //initializeDailyLog();
-    //await generatePredictions();
+    await generatePredictions();
 
     // Run every 30 minutes
     setInterval(async () => {
