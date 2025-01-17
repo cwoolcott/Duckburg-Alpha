@@ -21,6 +21,32 @@ function isTimeBetween930And4() {
     return now.isBetween(startTime, endTime, null, "[)");
 }
 
+// Fetch intraday stock data
+async function fetchIntradayData(symbol, startDate) {
+    const endpoint = `${DATA_BASE_URL}/${symbol}/bars`;
+    try {
+        const response = await axios.get(endpoint, {
+            headers: {
+                'APCA-API-KEY-ID': ALPACA_API_KEY,
+                'APCA-API-SECRET-KEY': ALPACA_SECRET_KEY,
+            },
+            params: {
+                start: startDate, // Start date for data retrieval
+                timeframe: '30Min', // Interval for bars (30-minute data)
+            },
+        });
+
+        return response.data.bars.map(bar => ({
+            symbol,
+            time: bar.t,
+            close: bar.c, // Closing price
+        }));
+    } catch (error) {
+        console.error(`Error fetching data for ${symbol}:`, error.message);
+        return [];
+    }
+}
+
 // Calculate confidence level and adjust quantity based on historical trade performance
 function calculateConfidenceAndQuantity(symbol, shortSMA, longSMA, predictionLog) {
     const symbolLogs = predictionLog.filter(entry => entry.symbol === symbol);
