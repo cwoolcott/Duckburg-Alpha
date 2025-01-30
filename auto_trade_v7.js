@@ -4,19 +4,49 @@ require('dotenv').config();
 const moment = require('moment-timezone');
 const { RSI, MACD, BollingerBands } = require('technicalindicators');
 
-// const ALPACA_API_KEY = process.env.ALPACA_API_KEY_V6;
-// const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY_V6;
-const ALPACA_API_KEY = 'PKSAA8VSBWM3HJSHXOLX';
-const ALPACA_SECRET_KEY = 'U4oMJsLouil9YHUa7E65bgXb9U4F2IiS9UmMe63s';
+const ALPACA_API_KEY = process.env.ALPACA_API_KEY_V7S || 'PKYAZVW274HSGM6125D9';
+const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY_V7S || 'eyutIDdTN3fOXu2GVXurfbVrzFFtHw9PeQP6GFvP';
 
-
+const MAIN_API_URL = 'https://chriscastle.com/duckburg_api/api.php'
 const PAPER_BASE_URL = 'https://paper-api.alpaca.markets';
 const DATA_BASE_URL = 'https://data.alpaca.markets/v2/stocks';
 const PREDICTION_LOG_FILE = 'predictions_log.json';
 const QUANTITY_MIN = 25;
 const QUANTITY_MAX = 100;
 
-const stockSymbols = ['NIO', 'FUBO', 'OPEN', 'SPCE', 'NKLA', 'BB', 'AMC', 'IQ', 'STNE', 'PAGS'];
+const stockSymbols = ['AAPL', 'TSLA', 'MSFT', 'NVDA', 'AMD', 'AMZN', 'META', 'GOOG', 'NFLX', 'SHOP', 'SQ', 'BA'];
+
+
+async function symbolExists(symbol,QUANTITY_MIN){
+    const response = await axios.get(
+                MAIN_API_URL, 
+            { 
+                params: {
+                    mode: "single",
+                    symbol: symbol,
+                    quantity: QUANTITY_MIN
+            }
+        }    
+    );
+    return  response.data.exists === "true" ? true : false;
+}
+
+async function updateQuanity(symbol,quantity,buyOrSell){
+    if (buyOrSell==="sell"){
+        quantity = quantity * -1;
+    }
+    try {
+        const response = await axios.post(
+            MAIN_API_URL,
+            JSON.stringify({ symbol, quantity }),
+            {
+                headers: { "Content-Type": "application/x-www-form-urlencoded" }
+            }
+        );
+    } catch (error) {
+        console.error(`Error placing order for ${symbol}:`, error.message);
+    }
+}
 
 // Fetch intraday stock data
 async function fetchIntradayData(symbol, startDate, requiredDataPoints) {
@@ -35,13 +65,17 @@ async function fetchIntradayData(symbol, startDate, requiredDataPoints) {
             },
         });
 
-        const bars = response.data.bars;
+        const bars = response.data?.bars;
+        if (!bars || bars.length === 0) {
+            console.warn(`No data fetched for ${symbol}.`);
+            return [];
+        }
+
         if (bars.length < requiredDataPoints) {
             console.warn(`Not enough data fetched for ${symbol}. Only ${bars.length} bars retrieved.`);
             return [];
         }
 
-        // Trim the data to exactly the required number of points
         return bars.slice(-requiredDataPoints).map(bar => ({
             symbol,
             time: bar.t,
@@ -51,7 +85,11 @@ async function fetchIntradayData(symbol, startDate, requiredDataPoints) {
             open: bar.o,
         }));
     } catch (error) {
-        console.error(`Error fetching data for ${symbol}:`, error.message);
+        if (error.response) {
+            console.error(`Error fetching data for ${symbol}:`, error.response.data);
+        } else {
+            console.error(`Error fetching data for ${symbol}:`, error.message);
+        }
         return [];
     }
 }
@@ -60,17 +98,11 @@ async function fetchIntradayData(symbol, startDate, requiredDataPoints) {
 function calculateIndicators(data) {
     const closes = data.map(d => d.close);
 
-    // Ensure we only calculate if there are enough data points
-    const sufficientData = closes.length >= 35;
-
-    if (!sufficientData) {
+    if (closes.length < 35) {
         return { rsi: [], macd: [], bb: [] };
     }
 
-    // RSI
     const rsi = RSI.calculate({ values: closes, period: 14 });
-
-    // MACD
     const macd = MACD.calculate({
         values: closes,
         fastPeriod: 12,
@@ -79,8 +111,6 @@ function calculateIndicators(data) {
         SimpleMAOscillator: false,
         SimpleMASignal: false,
     });
-
-    // Bollinger Bands
     const bb = BollingerBands.calculate({
         period: 20,
         values: closes,
@@ -98,19 +128,20 @@ function generateSignal(indicators, latestClose) {
     const latestMACD = macd.length > 0 ? macd[macd.length - 1] : null;
     const latestBB = bb.length > 0 ? bb[bb.length - 1] : null;
 
+    console.log(`RSI: ${latestRSI}, MACD: ${latestMACD?.histogram}, BB: ${JSON.stringify(latestBB)}, Close: ${latestClose}`);
+
     let signal = "Hold";
 
-    // RSI-based signal
     if (latestRSI !== null) {
-        if (latestRSI < 30) signal = "Buy"; // Oversold
-        if (latestRSI > 70) signal = "Sell"; // Overbought
+        if (latestRSI < 40) signal = "Buy";
+        if (latestRSI > 60) signal = "Sell";
     }
 
-    // MACD-based confirmation
-    if (latestMACD && latestMACD.histogram > 0 && signal === "Buy") signal = "Buy";
-    if (latestMACD && latestMACD.histogram < 0 && signal === "Sell") signal = "Sell";
+    if (latestMACD) {
+        if (latestMACD.histogram > 0 && signal === "Buy") signal = "Buy";
+        if (latestMACD.histogram < 0 && signal === "Sell") signal = "Sell";
+    }
 
-    // Bollinger Bands confirmation
     if (latestBB) {
         if (latestClose < latestBB.lower && signal === "Buy") signal = "Buy";
         if (latestClose > latestBB.upper && signal === "Sell") signal = "Sell";
@@ -139,18 +170,22 @@ async function submitOrder(symbol, qty, side) {
     }
 }
 
+
+
 // Generate predictions and place trades
 async function generatePredictions() {
-    const requiredDataPoints = 35; // Maximum required data points for indicators
-    const startDate = new Date().toISOString().split('T')[0] + 'T00:00:00Z';
-    const predictionLog = fs.existsSync(PREDICTION_LOG_FILE) ? JSON.parse(fs.readFileSync(PREDICTION_LOG_FILE, 'utf8')) : [];
+    const requiredDataPoints = 35;
+    const startDate = moment().subtract(7, 'days').toISOString();
+    const predictionLog = fs.existsSync(PREDICTION_LOG_FILE) 
+        ? JSON.parse(fs.readFileSync(PREDICTION_LOG_FILE, 'utf8')) 
+        : [];
 
     for (const symbol of stockSymbols) {
         console.log(`Fetching data for ${symbol}...`);
         const data = await fetchIntradayData(symbol, startDate, requiredDataPoints);
 
         if (data.length < requiredDataPoints) {
-            console.log(`Insufficient data for ${symbol}. Skipping.`);
+            console.warn(`Insufficient data for ${symbol}. Skipping.`);
             continue;
         }
 
@@ -160,8 +195,17 @@ async function generatePredictions() {
 
         if (signal === "Buy") {
             await submitOrder(symbol, QUANTITY_MIN, "buy");
+            await updateQuanity(symbol, QUANTITY_MIN, "buy");
         } else if (signal === "Sell") {
-            await submitOrder(symbol, QUANTITY_MIN, "sell");
+            const symbolInDB = await symbolExists(symbol,QUANTITY_MIN);
+            if (symbolInDB){
+                await submitOrder(symbol, QUANTITY_MIN, "sell");
+                await updateQuanity(symbol, QUANTITY_MIN, "sell");
+            }
+            else{
+                console.log("Can't Sell ", QUANTITY_MIN, " of ", symbol)
+            }
+            
         }
         console.log(`Prediction for ${symbol}: ${signal}`);
 
