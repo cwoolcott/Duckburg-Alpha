@@ -4,8 +4,8 @@ require('dotenv').config();
 const moment = require('moment-timezone');
 const { RSI, MACD, BollingerBands } = require('technicalindicators');
 
-const ALPACA_API_KEY = process.env.ALPACA_API_KEY_V7S || 'PKYAZVW274HSGM6125D9';
-const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY_V7S || 'eyutIDdTN3fOXu2GVXurfbVrzFFtHw9PeQP6GFvP';
+const ALPACA_API_KEY = process.env.ALPACA_API_KEY_V7S || 'PKGUHSYB92MGFU35Y96D';
+const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY_V7S || '7Mxh9mPPO5inL00nN6ChrB5ILG1MLw0Ic6CBeEbx';
 
 const MAIN_API_URL = 'https://chriscastle.com/duckburg_api/api.php'
 const PAPER_BASE_URL = 'https://paper-api.alpaca.markets';
