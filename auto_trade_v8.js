@@ -192,14 +192,16 @@ async function generatePredictions() {
         const indicators = calculateIndicators(data);
         const latestClose = data[data.length - 1].close;
         const signal = generateSignal(indicators, latestClose);
-
+        let submitResults;
         if (signal === "Buy") {
-            await submitOrder(symbol, QUANTITY_MIN, "buy");
+            submitResults = await submitOrder(symbol, QUANTITY_MIN, "buy");
+            console.log("submitResults", submitResults);
             await updateQuanity(symbol, QUANTITY_MIN, "buy");
         } else if (signal === "Sell") {
             const symbolInDB = await symbolExists(symbol,QUANTITY_MIN);
             if (symbolInDB){
-                await submitOrder(symbol, QUANTITY_MIN, "sell");
+                submitResults = await submitOrder(symbol, QUANTITY_MIN, "sell");
+                console.log("submitResults", submitResults);
                 await updateQuanity(symbol, QUANTITY_MIN, "sell");
             }
             else{
