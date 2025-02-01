@@ -259,7 +259,7 @@ async function main() {
             console.log('\nRefreshing data, running predictions, and placing trades...');
             await generatePredictions();
         }
-    }, 20 * 60 * 1000); // 20 minutes
+    }, 30 * 60 * 1000); // 20 minutes
 }
 
 main();
