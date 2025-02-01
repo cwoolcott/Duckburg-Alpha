@@ -4,8 +4,8 @@ require('dotenv').config();
 const moment = require('moment-timezone');
 const { RSI, MACD, BollingerBands } = require('technicalindicators');
 
-const ALPACA_API_KEY = process.env.ALPACA_API_KEY_V7S || 'PKGUHSYB92MGFU35Y96D';
-const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY_V7S || '7Mxh9mPPO5inL00nN6ChrB5ILG1MLw0Ic6CBeEbx';
+const ALPACA_API_KEY = process.env.ALPACA_API_KEY_V7S || 'PKEKRD1334NJB5N95OJH';
+const ALPACA_SECRET_KEY = process.env.ALPACA_SECRET_KEY_V7S || 'Vd9WNoHKyRbUvYzFgegRNDErphze66LdEDmhnDPu';
 
 const MAIN_API_URL = 'https://chriscastle.com/duckburg_api/api.php'
 const PAPER_BASE_URL = 'https://paper-api.alpaca.markets';
@@ -167,6 +167,7 @@ async function submitOrder(symbol, qty, side) {
         return response.data;
     } catch (error) {
         console.error(`Error placing order for ${symbol}:`, error.message);
+        return false;
     }
 }
 
@@ -192,33 +193,50 @@ async function generatePredictions() {
         const indicators = calculateIndicators(data);
         const latestClose = data[data.length - 1].close;
         const signal = generateSignal(indicators, latestClose);
-        let submitResults;
+        let submitResults = false;
         if (signal === "Buy") {
             submitResults = await submitOrder(symbol, QUANTITY_MIN, "buy");
             console.log("submitResults", submitResults);
-            await updateQuanity(symbol, QUANTITY_MIN, "buy");
+            if (submitResults){
+                await updateQuanity(symbol, QUANTITY_MIN, "buy");
+            }
+            else {
+                console.log("Issue Trading " + symbol);
+            }
+            
         } else if (signal === "Sell") {
             const symbolInDB = await symbolExists(symbol,QUANTITY_MIN);
             if (symbolInDB){
                 submitResults = await submitOrder(symbol, QUANTITY_MIN, "sell");
                 console.log("submitResults", submitResults);
-                await updateQuanity(symbol, QUANTITY_MIN, "sell");
+                if (submitResults){
+                    await updateQuanity(symbol, QUANTITY_MIN, "sell");
+                }
+                else {
+                    console.log("Issue Trading " + symbol);
+                }
             }
             else{
                 console.log("Can't Sell ", QUANTITY_MIN, " of ", symbol)
             }
             
         }
-        console.log(`Prediction for ${symbol}: ${signal}`);
+        
 
-        const newLogEntry = {
-            symbol,
-            signal,
-            price: latestClose,
-            time: new Date().toISOString(),
-            indicators,
-        };
-        predictionLog.push(newLogEntry);
+        if (submitResults){
+            console.log(`Prediction for ${symbol}: ${signal}`);
+            const newLogEntry = {
+                symbol,
+                signal,
+                price: latestClose,
+                time: new Date().toISOString(),
+                indicators,
+            };
+            predictionLog.push(newLogEntry);
+        }
+        else{
+            console.log(`Not Stored Prediction for ${symbol}: ${signal}`);
+        }
     }
 
     fs.writeFileSync(PREDICTION_LOG_FILE, JSON.stringify(predictionLog, null, 2));
